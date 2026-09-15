@@ -1,0 +1,4 @@
+# Extra dependencies needed only to run the test suite locally/in CI —
+# not required to run the API or CLI, so kept out of requirements.txt.
+-r requirements.txt
+pytest>=8.0
