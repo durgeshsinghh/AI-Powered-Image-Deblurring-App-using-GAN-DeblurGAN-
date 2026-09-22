@@ -1,8 +1,8 @@
-torch>=2.2
-torchvision>=0.17
 fastapi>=0.110
-uvicorn[standard]>=0.27
+uvicorn[standard]>=0.29
+numpy>=1.24
 pillow>=10.0
-numpy>=1.26
 python-multipart>=0.0.9
-tqdm>=4.66
+# torch is installed separately in the Dockerfile from the CPU-only wheel index
+# (https://download.pytorch.org/whl/cpu) to avoid pulling ~2GB of unused CUDA deps.
+# For local dev outside Docker: pip install torch>=2.0

@@ -2,19 +2,19 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install Python dependencies first for better layer caching.
+# CPU-only torch wheel — far smaller than the default (which pulls CUDA deps
+# even on a CPU-only host) and this app never touches a GPU.
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code.
-COPY model ./model
-COPY utils ./utils
-COPY api ./api
-COPY inference.py .
-COPY weights ./weights
+COPY app/ ./app/
+COPY checkpoints/ ./checkpoints/
 
-ENV MODEL_CHECKPOINT_PATH=/app/weights/generator.pth
+# Bounds peak RAM for memory-constrained free-tier hosts (see README).
+ENV DEBLURGAN_MAX_DIM=384
+ENV PORT=8000
 
 EXPOSE 8000
-
-CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
