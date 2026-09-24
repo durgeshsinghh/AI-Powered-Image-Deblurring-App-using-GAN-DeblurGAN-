@@ -37,6 +37,15 @@ class DeblurProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Picks an image from [source] and immediately submits it for
+  /// deblurring, if one was actually picked (the user didn't cancel).
+  Future<void> pickAndSubmit(ImageSource source) async {
+    await pickImage(source);
+    if (pickedImage != null) {
+      await submitForDeblur();
+    }
+  }
+
   /// Submits [pickedImage] to the backend for deblurring.
   Future<void> submitForDeblur() async {
     if (pickedImage == null) return;
