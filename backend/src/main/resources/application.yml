@@ -1,0 +1,16 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: deblurgan-backend
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+ml:
+  service:
+    # Deployed DeblurGAN API: https://github.com/durgeshsinghh/AI-Powered-Image-Deblurring-App-using-GAN-DeblurGAN-
+    # Render free tier - sleeps after 15 min idle, first request wakes it (~30-60s).
+    url: ${ML_SERVICE_URL:https://deblurgan-api.onrender.com}
