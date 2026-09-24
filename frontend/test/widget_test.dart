@@ -3,21 +3,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
 import 'package:frontend/providers/deblur_provider.dart';
-import 'package:frontend/screens/home_screen.dart';
+import 'package:frontend/providers/history_provider.dart';
+import 'package:frontend/screens/main_screen.dart';
 
 void main() {
-  testWidgets('HomeScreen shows app bar title and picker buttons', (
+  testWidgets('MainScreen shows app bar title and bottom action bar', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      ChangeNotifierProvider(
-        create: (_) => DeblurProvider(),
-        child: const MaterialApp(home: HomeScreen()),
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => DeblurProvider()),
+          ChangeNotifierProvider(create: (_) => HistoryProvider()),
+        ],
+        child: const MaterialApp(home: MainScreen()),
       ),
     );
+    await tester.pump();
 
     expect(find.text('AI Image Deblurring'), findsOneWidget);
-    expect(find.text('Pick from Gallery'), findsOneWidget);
-    expect(find.text('Take Photo'), findsOneWidget);
+    expect(find.text('Gallery'), findsOneWidget);
+    expect(find.text('History'), findsOneWidget);
+    expect(find.byIcon(Icons.camera_alt_rounded), findsOneWidget);
   });
 }
