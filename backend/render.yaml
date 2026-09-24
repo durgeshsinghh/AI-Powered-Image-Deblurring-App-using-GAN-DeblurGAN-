@@ -1,0 +1,19 @@
+# Render Blueprint reference for this service. The repo root already has a
+# render.yaml for the ML service (see ../app), so this one isn't picked up
+# automatically -- deploy this service manually in the Render dashboard
+# instead (see README.md "Deploying to Render"): New -> Web Service ->
+# select this repo -> set "Root Directory" to `backend` and "Dockerfile
+# Path" to `backend/Dockerfile`. Kept here as documentation of the exact
+# config to use, and as a ready-made Blueprint if this backend is ever
+# split into its own repository.
+services:
+  - type: web
+    name: deblurgan-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: ML_SERVICE_URL
+        value: https://deblurgan-api.onrender.com
