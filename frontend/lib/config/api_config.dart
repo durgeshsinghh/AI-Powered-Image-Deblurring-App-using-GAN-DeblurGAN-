@@ -16,6 +16,12 @@
 ///   machine's LAN IP, e.g. `http://192.168.1.42:8080`
 /// - iOS simulator: `http://localhost:8080` also works (iOS simulator
 ///   shares the host's network namespace).
+///
+/// Or override at build time without editing code:
+/// `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8080`
 class ApiConfig {
-  static const String baseUrl = "https://deblurgan-backend.onrender.com";
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'https://deblurgan-backend.onrender.com',
+  );
 }

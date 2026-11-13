@@ -32,7 +32,14 @@ class ApiService {
   /// result. Never throws: any network failure or non-2xx response is
   /// captured and returned as a [DeblurResult] with `success: false` and a
   /// user-friendly [DeblurResult.error] message.
-  Future<DeblurResult> deblurImage(File imageFile) async {
+  ///
+  /// [onSendProgress] reports upload progress; [cancelToken] lets the
+  /// Processing screen's Cancel button abort the request.
+  Future<DeblurResult> deblurImage(
+    File imageFile, {
+    ProgressCallback? onSendProgress,
+    CancelToken? cancelToken,
+  }) async {
     try {
       final formData = FormData.fromMap({
         'image': await MultipartFile.fromFile(
@@ -41,10 +48,18 @@ class ApiService {
         ),
       });
 
-      final response = await _dio.post('/api/v1/deblur', data: formData);
+      final response = await _dio.post(
+        '/api/v1/deblur',
+        data: formData,
+        onSendProgress: onSendProgress,
+        cancelToken: cancelToken,
+      );
 
       return DeblurResult.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {
+      if (CancelToken.isCancel(e)) {
+        return const DeblurResult(success: false, error: 'Cancelled.');
+      }
       final data = e.response?.data;
       String message = 'Could not reach the server. Please try again.';
       if (data is Map<String, dynamic> && data['error'] is String) {

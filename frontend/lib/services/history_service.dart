@@ -14,6 +14,15 @@ import '../models/history_entry.dart';
 class HistoryService {
   static const _indexKey = 'history_index_v1';
 
+  Future<Directory> _historyDir() async {
+    final dir = await getApplicationDocumentsDirectory();
+    final historyDir = Directory('${dir.path}/deblur_history');
+    if (!await historyDir.exists()) {
+      await historyDir.create(recursive: true);
+    }
+    return historyDir;
+  }
+
   Future<List<HistoryEntry>> loadHistory() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_indexKey);
@@ -21,6 +30,8 @@ class HistoryService {
 
     final list = (jsonDecode(raw) as List)
         .map((e) => HistoryEntry.fromJson(e as Map<String, dynamic>))
+        // Drop entries whose files were removed outside the app.
+        .where((e) => File(e.deblurredPath).existsSync())
         .toList();
     list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return list;
@@ -30,12 +41,11 @@ class HistoryService {
     required File original,
     required Uint8List deblurredBytes,
     int? processingTimeMs,
+    String? hash,
+    String mode = 'server',
+    String? name,
   }) async {
-    final dir = await getApplicationDocumentsDirectory();
-    final historyDir = Directory('${dir.path}/deblur_history');
-    if (!await historyDir.exists()) {
-      await historyDir.create(recursive: true);
-    }
+    final historyDir = await _historyDir();
 
     final id = DateTime.now().microsecondsSinceEpoch.toString();
     final originalCopy = await original.copy(
@@ -50,6 +60,9 @@ class HistoryService {
       deblurredPath: deblurredFile.path,
       createdAt: DateTime.now(),
       processingTimeMs: processingTimeMs,
+      hash: hash,
+      mode: mode,
+      name: name ?? 'IMG_${id.substring(id.length - 4)}',
     );
 
     final current = await loadHistory();
@@ -59,13 +72,36 @@ class HistoryService {
   }
 
   Future<void> deleteEntry(HistoryEntry entry) async {
+    await _deleteFiles(entry);
+    final current = await loadHistory();
+    current.removeWhere((e) => e.id == entry.id);
+    await _persist(current);
+  }
+
+  Future<void> clearAll() async {
+    for (final e in await loadHistory()) {
+      await _deleteFiles(e);
+    }
+    await _persist([]);
+  }
+
+  /// Total bytes used by saved originals + results.
+  Future<int> totalBytes(List<HistoryEntry> entries) async {
+    var total = 0;
+    for (final e in entries) {
+      for (final path in [e.originalPath, e.deblurredPath]) {
+        final f = File(path);
+        if (await f.exists()) total += await f.length();
+      }
+    }
+    return total;
+  }
+
+  Future<void> _deleteFiles(HistoryEntry entry) async {
     for (final path in [entry.originalPath, entry.deblurredPath]) {
       final file = File(path);
       if (await file.exists()) await file.delete();
     }
-    final current = await loadHistory();
-    current.removeWhere((e) => e.id == entry.id);
-    await _persist(current);
   }
 
   Future<void> _persist(List<HistoryEntry> entries) async {

@@ -1,15 +1,20 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../models/history_entry.dart';
 import '../providers/history_provider.dart';
-import '../widgets/before_after_view.dart';
+import '../theme/app_theme.dart';
+import '../utils/format.dart';
+import '../widgets/ui.dart';
+import 'result_screen.dart';
 
-/// Grid of previously-deblurred photos, saved locally on-device. Tap a card
-/// to see the full before/after comparison; long-press (or the delete icon
-/// in that view) removes it.
+enum _Filter { all, server, device }
+
+/// "Your archive": staggered two-column grid of saved results, with
+/// filters and search. Long-press a tile to delete it.
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
 
@@ -18,170 +23,289 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
+  _Filter _filter = _Filter.all;
+  bool _searching = false;
+  String _query = '';
+  final _searchCtrl = TextEditingController();
+
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => context.read<HistoryProvider>().load(),
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  List<HistoryEntry> _visible(List<HistoryEntry> all) {
+    final q = _query.trim().toUpperCase();
+    return all.where((e) {
+      final modeOk = switch (_filter) {
+        _Filter.all => true,
+        _Filter.server => !e.isOnDevice,
+        _Filter.device => e.isOnDevice,
+      };
+      return modeOk && (q.isEmpty || e.name.toUpperCase().contains(q));
+    }).toList();
+  }
+
+  Future<void> _confirmDelete(HistoryEntry e) async {
+    final history = context.read<HistoryProvider>();
+    final ok = await showConfirmSheet(
+      context,
+      title: 'Delete ${e.name}?',
+      body: 'The original and the deblurred copy are removed from this phone.',
+      action: 'Delete',
     );
+    if (ok == true) await history.deleteEntry(e);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<HistoryProvider>(
-      builder: (context, provider, _) {
-        if (provider.isLoading && provider.entries.isEmpty) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (provider.entries.isEmpty) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+    final history = context.watch<HistoryProvider>();
+    final top = MediaQuery.paddingOf(context).top;
+    final items = _visible(history.entries);
+
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(24, top + 12, 24, 0),
+          sliver: SliverList.list(
+            children: [
+              SizedBox(
+                height: 40,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _searching
+                          ? TextField(
+                              controller: _searchCtrl,
+                              autofocus: true,
+                              onChanged: (v) => setState(() => _query = v),
+                              style: AppText.sans(15),
+                              decoration: InputDecoration(
+                                hintText: 'Search by name',
+                                hintStyle: AppText.sans(15, color: AppColors.textFaint),
+                                border: InputBorder.none,
+                                isDense: true,
+                              ),
+                            )
+                          : MonoLabel(
+                              'CACHE · ${Fmt.bytes(history.totalBytes)}'
+                              ' · ${history.entries.length} PHOTOS',
+                            ),
+                    ),
+                    IconCircleButton(
+                      icon: _searching ? LucideIcons.x : LucideIcons.search,
+                      semanticLabel: _searching ? 'Close search' : 'Search history',
+                      onTap: () => setState(() {
+                        _searching = !_searching;
+                        if (!_searching) {
+                          _query = '';
+                          _searchCtrl.clear();
+                        }
+                      }),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              Headline([Headline.sans('Your ', 44), Headline.serif('archive', 50)]),
+              const SizedBox(height: 18),
+              Row(
                 children: [
-                  Icon(
-                    Icons.photo_outlined,
-                    size: 64,
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'No deblurred photos yet',
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Photos you deblur will show up here.',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
+                  for (final (f, label) in const [
+                    (_Filter.all, 'All'),
+                    (_Filter.server, 'Server'),
+                    (_Filter.device, 'On-device'),
+                  ]) ...[
+                    _FilterPill(
+                      label: label,
+                      active: _filter == f,
+                      onTap: () => setState(() => _filter = f),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                 ],
               ),
-            ),
-          );
-        }
-
-        return GridView.builder(
-          padding: const EdgeInsets.all(12),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: 0.9,
+              const SizedBox(height: 18),
+            ],
           ),
-          itemCount: provider.entries.length,
-          itemBuilder: (context, index) {
-            final entry = provider.entries[index];
-            return _HistoryCard(entry: entry);
-          },
-        );
-      },
+        ),
+        if (history.isLoading && history.entries.isEmpty)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.only(top: 60),
+              child: Center(
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.accent),
+                ),
+              ),
+            ),
+          )
+        else if (items.isEmpty)
+          SliverToBoxAdapter(child: _empty(history.entries.isEmpty))
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 140),
+            sliver: SliverToBoxAdapter(child: _grid(items)),
+          ),
+      ],
+    );
+  }
+
+  Widget _grid(List<HistoryEntry> items) {
+    const heights = [250.0, 170.0, 170.0, 250.0];
+    final colA = <Widget>[];
+    final colB = <Widget>[];
+    for (var i = 0; i < items.length; i++) {
+      final tile = Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: _Tile(
+          entry: items[i],
+          height: heights[i % 4],
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => ResultScreen(entry: items[i], cached: true)),
+          ),
+          onLongPress: () => _confirmDelete(items[i]),
+        ),
+      );
+      (i.isEven ? colA : colB).add(tile);
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: Column(children: colA)),
+        const SizedBox(width: 10),
+        Expanded(child: Column(children: colB)),
+      ],
+    );
+  }
+
+  Widget _empty(bool nothingSaved) {
+    final text = nothingSaved
+        ? 'No deblurred photos yet. Tap the lime button to start.'
+        : _filter == _Filter.device
+            ? 'No on-device results yet. The on-device model is coming soon.'
+            : 'Nothing matches that search.';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 30, 24, 140),
+      child: Column(
+        children: [
+          const Icon(LucideIcons.layoutDashboard, size: 34, color: AppColors.textFaint),
+          const SizedBox(height: 14),
+          Text(text, textAlign: TextAlign.center, style: AppText.body(15)),
+        ],
+      ),
     );
   }
 }
 
-class _HistoryCard extends StatelessWidget {
-  final HistoryEntry entry;
+class _FilterPill extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
 
-  const _HistoryCard({required this.entry});
+  const _FilterPill({required this.label, required this.active, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => _HistoryDetailScreen(entry: entry)),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Image.file(File(entry.deblurredPath), fit: BoxFit.cover),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: 0.55),
-                    ],
-                  ),
-                ),
-                child: Text(
-                  _formatDate(entry.createdAt),
-                  style: const TextStyle(color: Colors.white, fontSize: 11),
-                ),
-              ),
-            ),
-          ],
+    return Pressable(
+      onTap: onTap,
+      semanticLabel: label,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: active ? AppColors.text : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          border: active ? null : Border.all(color: AppColors.textA(0.14)),
+        ),
+        child: Text(
+          label,
+          style: AppText.button(14, color: active ? AppColors.onAccent : AppColors.textMuted),
         ),
       ),
     );
   }
-
-  static String _formatDate(DateTime dt) {
-    final now = DateTime.now();
-    final sameDay =
-        dt.year == now.year && dt.month == now.month && dt.day == now.day;
-    if (sameDay) {
-      final h = dt.hour.toString().padLeft(2, '0');
-      final m = dt.minute.toString().padLeft(2, '0');
-      return '$h:$m';
-    }
-    return '${dt.day}/${dt.month}/${dt.year}';
-  }
 }
 
-class _HistoryDetailScreen extends StatelessWidget {
+class _Tile extends StatelessWidget {
   final HistoryEntry entry;
+  final double height;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
-  const _HistoryDetailScreen({required this.entry});
+  const _Tile({
+    required this.entry,
+    required this.height,
+    required this.onTap,
+    required this.onLongPress,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final deblurredBytes = File(entry.deblurredPath).readAsBytesSync();
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Deblurred photo'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            tooltip: 'Delete',
-            onPressed: () async {
-              await context.read<HistoryProvider>().deleteEntry(entry);
-              if (context.mounted) Navigator.of(context).pop();
-            },
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
+    return Pressable(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      semanticLabel: 'Open ${entry.name}',
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: SizedBox(
+          height: height,
+          width: double.infinity,
+          child: Stack(
+            fit: StackFit.expand,
             children: [
-              BeforeAfterView(
-                original: File(entry.originalPath),
-                deblurred: deblurredBytes,
+              Image.file(
+                File(entry.deblurredPath),
+                fit: BoxFit.cover,
+                cacheWidth: 500,
+                errorBuilder: (_, _, _) => Container(color: AppColors.surfaceHigh),
               ),
-              const SizedBox(height: 16),
-              if (entry.processingTimeMs != null)
-                Text('Processed in ${entry.processingTimeMs} ms'),
-              const SizedBox(height: 4),
-              Text(
-                entry.createdAt.toLocal().toString(),
-                style: Theme.of(context).textTheme.bodySmall,
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    stops: const [0.55, 1],
+                    colors: [AppColors.bgA(0), AppColors.bgA(0.8)],
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 10,
+                left: 10,
+                child: MonoChip(
+                  entry.isOnDevice ? 'ON-DEVICE' : 'SERVER',
+                  fontSize: 10,
+                  color: entry.isOnDevice ? AppColors.accent : AppColors.text,
+                  background: AppColors.bgA(0.6),
+                  radius: 6,
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                ),
+              ),
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 10,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.sans(13, weight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      Fmt.when(entry.createdAt),
+                      style: AppText.mono(10, color: AppColors.textChip, spacing: 0.06),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -189,4 +313,48 @@ class _HistoryDetailScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Small confirmation bottom sheet in the app's style.
+Future<bool?> showConfirmSheet(
+  BuildContext context, {
+  required String title,
+  required String body,
+  required String action,
+}) {
+  return showModalBottomSheet<bool>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    barrierColor: const Color(0x9E050506),
+    builder: (ctx) => Padding(
+      padding: EdgeInsets.fromLTRB(8, 0, 8, 8 + MediaQuery.paddingOf(ctx).bottom),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(32),
+          border: Border.all(color: AppColors.textA(0.10)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(title, style: AppText.title(20)),
+            const SizedBox(height: 8),
+            Text(body, style: AppText.body(14)),
+            const SizedBox(height: 20),
+            SoftButton(
+              label: action,
+              outlined: true,
+              color: AppColors.danger,
+              borderColor: AppColors.dangerBorder,
+              onTap: () => Navigator.of(ctx).pop(true),
+            ),
+            const SizedBox(height: 10),
+            SoftButton(label: 'Cancel', onTap: () => Navigator.of(ctx).pop(false)),
+          ],
+        ),
+      ),
+    ),
+  );
 }
